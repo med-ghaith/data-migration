@@ -1,0 +1,101 @@
+version: '3'
+services:
+  dbzui-zookeeper:
+    container_name: dbzui-zookeeper
+    image: debezium/zookeeper:2.1.2.Final
+    networks:
+      - dbzui-network
+
+  dbzui-kafka:
+    container_name: dbzui-kafka
+    image: debezium/kafka:2.1.2.Final
+    ports:
+      - "9092:9092"
+    depends_on:
+      - dbzui-zookeeper
+    environment:
+      - ZOOKEEPER_CONNECT=dbzui-zookeeper:2181
+    networks:
+      - dbzui-network
+
+  dbzui-db-pg:
+    container_name: dbzui-db-pg
+    image: debezium/example-postgres:2.1.2.Final
+    ports:
+      - "65432:5432"
+    environment:
+      - POSTGRES_USER=postgres
+      - POSTGRES_PASSWORD=postgres
+    networks:
+      - dbzui-network
+
+  dbzui-db-mysql:
+    container_name: dbzui-db-mysql
+    image: mysql:5
+    ports:
+      - "63306:3306"
+    environment:
+      - MYSQL_ROOT_PASSWORD=debezium
+      - MYSQL_USER=mysqluser
+      - MYSQL_PASSWORD=mysql
+      - MYSQL_ROOT_PASSWORD=mysql
+    networks:
+      - dbzui-network
+
+  dbzui-db-mongo:
+    container_name: dbzui-db-mongo
+    image: mongo:5.0
+    command: ["mongod", "--replSet", "rs0"]
+    ports:
+      - "37017:27017"
+    networks:
+      - dbzui-network
+
+  mongo-initializer:
+    image: mongo:5.0
+    networks:
+      - dbzui-network
+    depends_on:
+      - dbzui-db-mongo
+    volumes:
+      - ./backend/src/test/resources/initialize-mongo-single.js:/docker-entrypoint-initdb.d/initialize-mongo-single.js
+    command:
+      - bash
+      - -c
+      - |
+        sleep 20 && mongosh --host dbzui-db-mongo --port 27017 --eval "rs.initiate();" &&
+        mongosh --host dbzui-db-mongo --port 27017 /docker-entrypoint-initdb.d/initialize-mongo-single.js
+
+  dbzui-connect:
+    container_name: dbzui-connect
+    image: debezium/connect:2.1.2.Final
+    ports:
+      - "8083:8083"
+    depends_on:
+      - dbzui-kafka
+      - dbzui-db-pg
+    environment:
+      - BOOTSTRAP_SERVERS=dbzui-kafka:9092
+      - GROUP_ID=1
+      - CONFIG_STORAGE_TOPIC=my_connect_configs
+      - OFFSET_STORAGE_TOPIC=my_connect_offsets
+      - STATUS_STORAGE_TOPIC=my_connect_statuses
+    networks:
+      - dbzui-network
+
+  schema-registry:
+    container_name: schema-registry
+    image: confluentinc/cp-schema-registry:7.4.0
+    ports:
+      - "8081:8081"
+    depends_on:
+      - dbzui-kafka
+    environment:
+      - SCHEMA_REGISTRY_KAFKASTORE_BOOTSTRAP_SERVERS=dbzui-kafka:9092
+      - SCHEMA_REGISTRY_HOST_NAME=schema-registry
+      - SCHEMA_REGISTRY_LISTENERS=http://0.0.0.0:8081
+    networks:
+      - dbzui-network
+
+networks:
+  dbzui-network:
