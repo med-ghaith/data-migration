@@ -44,7 +44,7 @@ public abstract class ConnectorIntegratorBase implements ConnectorIntegrator{
                 .map(this::toConnectorProperty)
                 .collect(Collectors.toMap(connectorProperty -> connectorProperty.getName(), connectorProperty -> connectorProperty));
 
-        // apply sorting of properties provided by {@link #allPropertiesWithAdditionalMetadata()}
+
         ArrayList<ConnectorProperty> sortedProperties = allPropertiesWithAdditionalMetadata().keySet()
                 .stream().map(properties::get).collect(Collectors.toCollection(ArrayList::new));
 

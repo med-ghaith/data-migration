@@ -2,19 +2,30 @@ version: '3'
 services:
   dbzui-zookeeper:
     container_name: dbzui-zookeeper
-    image: debezium/zookeeper:2.1.2.Final
+    image: confluentinc/cp-zookeeper:7.4.0
+    environment:
+      ZOOKEEPER_CLIENT_PORT: 2181
+      ZOOKEEPER_TICK_TIME: 2000
+    ports:
+      - "2181:2181"
     networks:
       - dbzui-network
 
   dbzui-kafka:
     container_name: dbzui-kafka
-    image: debezium/kafka:2.1.2.Final
+    image: confluentinc/cp-kafka:7.4.0
     ports:
       - "9092:9092"
+      - "29092:29092"
     depends_on:
       - dbzui-zookeeper
     environment:
-      - ZOOKEEPER_CONNECT=dbzui-zookeeper:2181
+      KAFKA_ZOOKEEPER_CONNECT: dbzui-zookeeper:2181
+      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: PLAINTEXT:PLAINTEXT,PLAINTEXT_HOST:PLAINTEXT
+      KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://dbzui-kafka:9092,PLAINTEXT_HOST://localhost:29092
+      KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
+    healthcheck:
+      test: [ "CMD", "nc", "-z", "localhost", "9092" ]
     networks:
       - dbzui-network
 
@@ -68,24 +79,33 @@ services:
 
   dbzui-connect:
     container_name: dbzui-connect
-    image: debezium/connect:2.1.2.Final
+    image: quay.io/debezium/connect:latest
     ports:
       - "8083:8083"
     depends_on:
       - dbzui-kafka
       - dbzui-db-pg
+      - dbzui-db-mongo
+      - dbzui-db-mysql
     environment:
       - BOOTSTRAP_SERVERS=dbzui-kafka:9092
       - GROUP_ID=1
       - CONFIG_STORAGE_TOPIC=my_connect_configs
       - OFFSET_STORAGE_TOPIC=my_connect_offsets
       - STATUS_STORAGE_TOPIC=my_connect_statuses
+      - ENABLE_DEBEZIUM_KC_REST_EXTENSION=true
+      - CONNECT_REST_EXTENSION_CLASSES=io.debezium.kcrestextension.DebeziumConnectRestExtension,io.debezium.connector.mysql.rest.DebeziumMySqlConnectRestExtension,io.debezium.connector.postgresql.rest.DebeziumPostgresConnectRestExtension,io.debezium.connector.mongodb.rest.DebeziumMongoDbConnectRestExtension,io.debezium.connector.oracle.rest.DebeziumOracleConnectRestExtension,io.debezium.connector.sqlserver.rest.DebeziumSqlServerConnectRestExtension
+      - ENABLE_DEBEZIUM_SCRIPTING=true
+      - CONNECT_ACCESS_CONTROL_ALLOW_ORIGIN=*
+      - CONNECT_ACCESS_CONTROL_ALLOW_METHODS=GET,POST,PUT,DELETE
+      - CONNECT_ACCESS_CONTROL_ALLOW_HEADERS=origin,content-type,accept,authorization
     networks:
       - dbzui-network
 
   schema-registry:
     container_name: schema-registry
-    image: confluentinc/cp-schema-registry:7.4.0
+    image: confluentinc/cp-schema-registry:7.4.1
+    restart: unless-stopped
     ports:
       - "8081:8081"
     depends_on:
@@ -94,6 +114,20 @@ services:
       - SCHEMA_REGISTRY_KAFKASTORE_BOOTSTRAP_SERVERS=dbzui-kafka:9092
       - SCHEMA_REGISTRY_HOST_NAME=schema-registry
       - SCHEMA_REGISTRY_LISTENERS=http://0.0.0.0:8081
+    networks:
+      - dbzui-network
+
+  schema-registry-ui:
+    container_name: schema-registry-ui
+    image: landoop/schema-registry-ui:latest
+    ports:
+      - "8000:8000"
+    depends_on:
+      - schema-registry
+    environment:
+      - SCHEMAREGISTRY_URL=http://schema-registry:8081
+      - SCHEMAREGISTRY_UI_HOST=0.0.0.0
+      - SCHEMAREGISTRY_UI_PORT=8000
     networks:
       - dbzui-network
 
